@@ -22,8 +22,14 @@ jobs:
         run: |
           arduino-cli core update-index
           arduino-cli core install arduino:avr
+      - name: Stage Arduino sketch
+        run: |
+          mkdir -p /tmp/pcg_psm_rev_a
+          cp firmware/arduino-uno/pcg_psm_rev_a.ino /tmp/pcg_psm_rev_a/pcg_psm_rev_a.ino
+          cp firmware/arduino-uno/config.h /tmp/pcg_psm_rev_a/config.h
+          cp firmware/arduino-uno/event_log.h /tmp/pcg_psm_rev_a/event_log.h
       - name: Compile Rev A Uno firmware
-        run: arduino-cli compile --fqbn arduino:avr:uno firmware/arduino-uno/pcg_psm_rev_a.ino
+        run: arduino-cli compile --fqbn arduino:avr:uno /tmp/pcg_psm_rev_a
 
   raspberry-pi-service:
     runs-on: ubuntu-latest
