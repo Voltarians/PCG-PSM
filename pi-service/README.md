@@ -1,70 +1,77 @@
-# PCG-PSM Raspberry Pi Service — Rev A.1
+# PCG-PSM Raspberry Pi Service — Rev A.2
 
-This directory contains the Raspberry Pi-side companion design for the PCG-PSM supervisor.
+The Raspberry Pi side deliberately splits responsibilities between **kernel device-tree overlays** and a small userspace daemon.
 
-## Frozen Rev A.1 GPIO contract
+## Safety-critical GPIO ownership
 
-| Pi GPIO | Physical pin | Function |
-| --- | ---: | --- |
-| GPIO17 | 11 | active-low shutdown request from Uno through U4B |
-| GPIO27 | 13 | 1 Hz heartbeat output through U4C |
-| GPIO22 | 15 | safe-to-cut-power output through U4D |
-| 3.3 V | 1 | Pi-side pull-up reference only |
-| GND | 6 | Pi-side optocoupler return |
+The kernel owns the two shutdown handshake lines:
 
-No Pi 5 V power is carried on the PCG-PSM signal header.
+- **GPIO17** — shutdown request from the Uno. `gpio-shutdown` treats the optocoupler's LOW as a normal power-key event and starts Linux shutdown even if the PCG-PSM daemon has crashed.
+- **GPIO22** — safe-to-cut-power acknowledgement to the Uno. `gpio-poweroff` drives the pin HIGH only after Linux reaches the final poweroff state; the optocoupler then pulls Uno D4 LOW.
 
-## Boot configuration
+The userspace daemon **does not claim GPIO17 or GPIO22**.
 
-Add the following overlays to the Pi boot configuration:
+## Userspace daemon
 
-```text
-dtoverlay=gpio-shutdown,gpio_pin=17,active_low=1,gpio_pull=up,debounce=100
-dtoverlay=gpio-poweroff,gpiopin=22
+`pcg_psm.py` owns:
+
+- BCM **GPIO27** heartbeat generation (1 Hz by default)
+- optional 115200-baud Uno USB telemetry from `/dev/ttyACM0`
+- latest parsed status at `/run/pcg-psm/status.json`
+
+If USB serial is absent, the heartbeat continues. This keeps power supervision independent from telemetry.
+
+## Files
+
+- `pcg_psm.py` — heartbeat / telemetry daemon
+- `pcg-psm.service` — systemd unit
+- `pcg-psm.conf` — runtime configuration
+- `config.txt.example` — required Pi device-tree overlays
+- `install.sh` — Raspberry Pi OS installer
+
+## Install
+
+```bash
+cd pi-service
+sudo ./install.sh
+sudo reboot
 ```
 
-### Why GPIO22 is the cut-power acknowledgement
+After reboot:
 
-Rev A.1 no longer treats an early userspace flag as permission to remove power. The Uno waits for the `gpio-poweroff` hardware indication on GPIO22, isolated through U4D, before normal power removal. A supervisor hard timeout remains the fallback if Linux never reaches that state.
-
-## Heartbeat
-
-A small systemd service will toggle GPIO27 every 500 ms, producing a 1 Hz full cycle while PCG-Core is healthy.
-
-Supervisor policy:
-
-- BOOT requires at least one real heartbeat edge.
-- RUN faults if no edge is seen for approximately 15 seconds.
-- A watchdog fault requests orderly shutdown first and falls back to the hard power timeout if required.
-
-## Shutdown flow
-
-```text
-ACC off
-  -> Uno programmable delay
-  -> Uno D3 asserts shutdown request
-  -> U4B pulls GPIO17 low
-  -> gpio-shutdown initiates normal Linux shutdown
-  -> OBD Atlas / PCG services stop and storage is flushed
-  -> Linux reaches poweroff
-  -> gpio-poweroff drives GPIO22
-  -> U4D makes Uno D4 active LOW
-  -> Uno disables U2 / PS1
-  -> Uno releases D7 self-hold
-  -> supervisor removes its own power
+```bash
+systemctl status pcg-psm
+cat /run/pcg-psm/status.json
 ```
 
-## Service responsibilities
+## Expected handshake
 
-The PCG-PSM userspace component will:
+```text
+RUN
+  Pi daemon toggles GPIO27 heartbeat
 
-- generate GPIO27 heartbeat
-- expose supervisor telemetry/configuration once serial protocol is added
-- coordinate PCG-Core application shutdown where needed
-- log boot/shutdown/watchdog events
+ACC OFF
+  Uno waits ignition-off delay
+  Uno D3 HIGH -> optocoupler -> GPIO17 LOW
+  kernel gpio-shutdown starts Linux shutdown
+  normal systemd shutdown stops PCG-Core services and flushes storage
+  kernel reaches final poweroff
+  GPIO22 HIGH -> optocoupler -> Uno D4 LOW
+  Uno cuts main 12 V feed to DDR-60G-5
+  Uno releases its own latch when ACC is absent
+```
 
-It does **not** have final authority to keep the hardware powered. The Uno/ATmega supervisor remains independent and retains the hard timeout.
+If Linux never reaches GPIO22, the Uno's hard timeout eventually removes main power and records `SHUTDOWN_HARD_TIMEOUT`.
 
-## Next implementation
+## GPIO overlays
 
-The next software deliverable is a minimal `pcg-psm-heartbeat.service` plus heartbeat executable/script, followed by a serial telemetry protocol after Rev A.1 electrical bench validation.
+```text
+dtoverlay=gpio-shutdown,gpio_pin=17,active_low=1,gpio_pull=2,debounce=100
+dtoverlay=gpio-poweroff,gpiopin=22,active_low=0
+```
+
+`install.sh` makes a timestamped backup of `config.txt` before adding them.
+
+## OBD Atlas / PCG-Core services
+
+Normal systemd shutdown will stop services and sync filesystems. Services that require explicit ordering should add their own shutdown dependencies rather than putting application-specific control inside the safety heartbeat daemon.
