@@ -1,10 +1,10 @@
 /*
- * PCG-PSM Rev A
+ * PCG-PSM Rev A.1
  * Promethean Core Power Supervisor Module
  *
  * Development target: Arduino Uno / ATmega328P
  *
- * Rev A hardware conventions are now frozen for the first bench build.
+ * Rev A.1 electrical conventions are frozen for the first bench build.
  * Low-voltage thresholds and ADC calibration remain intentionally TBD
  * until the protected power path is measured on the bench and in the Volt.
  */
@@ -25,14 +25,14 @@ enum class SupervisorState : uint8_t {
   FAULT
 };
 
-// Frozen Rev A pin plan.
-constexpr uint8_t PIN_ACC_SENSE      = 2;   // Active LOW via optocoupler
-constexpr uint8_t PIN_SHUTDOWN_REQ   = 3;   // HIGH lights opto; Pi sees LOW
-constexpr uint8_t PIN_SHUTDOWN_ACK   = 4;   // Active LOW via optocoupler
-constexpr uint8_t PIN_PI_HEARTBEAT   = 5;   // Edge-based via optocoupler
+// Frozen Rev A.1 pin plan.
+constexpr uint8_t PIN_ACC_SENSE      = 2;   // Active LOW via U4A
+constexpr uint8_t PIN_SHUTDOWN_REQ   = 3;   // HIGH lights U4B; Pi GPIO17 sees LOW
+constexpr uint8_t PIN_SHUTDOWN_ACK   = 4;   // Active LOW via U4D / Pi gpio-poweroff GPIO22
+constexpr uint8_t PIN_PI_HEARTBEAT   = 5;   // Edge-based via U4C / Pi GPIO27
 constexpr uint8_t PIN_MAIN_POWER_EN  = 6;   // HIGH enables BTS50060
-constexpr uint8_t PIN_SELF_HOLD      = 7;   // HIGH holds supervisor latch
-constexpr uint8_t PIN_SERVICE_WAKE   = 8;   // Active LOW switch/input
+constexpr uint8_t PIN_SELF_HOLD      = 7;   // HIGH holds Q2 supervisor latch
+constexpr uint8_t PIN_SERVICE_WAKE   = 8;   // Active LOW from SW1 pole B
 constexpr uint8_t PIN_VEHICLE_VOLT   = A0;
 constexpr uint8_t PIN_5V_VOLT        = A1;
 constexpr uint8_t PIN_TEMPERATURE    = A2;
@@ -51,6 +51,7 @@ unsigned long stateEnteredMs = 0;
 unsigned long lastHeartbeatMs = 0;
 bool lastHeartbeatLevel = true;
 bool heartbeatSeen = false;
+bool serviceBootLatched = false;
 
 void enterState(SupervisorState next) {
   state = next;
@@ -66,6 +67,8 @@ bool serviceRequested() {
 }
 
 bool shutdownAcknowledged() {
+  // U4D inverts Pi GPIO22. LOW here means Linux has reached the
+  // gpio-poweroff safe-to-remove-power indication.
   return digitalRead(PIN_SHUTDOWN_ACK) == LOW;
 }
 
@@ -75,7 +78,7 @@ void setMainPower(bool enabled) {
 
 void setShutdownRequest(bool active) {
   // HIGH drives the Uno-side optocoupler LED. The Pi receives an
-  // active-LOW shutdown request at its isolated GPIO input.
+  // active-LOW shutdown request at GPIO17.
   digitalWrite(PIN_SHUTDOWN_REQ, active ? HIGH : LOW);
 }
 
@@ -99,8 +102,10 @@ bool heartbeatAlive() {
 }
 
 void setup() {
-  // Optocoupler transistor outputs are open collector; internal pull-ups
-  // define safe inactive states if the Pi/vehicle side is disconnected.
+  // Optocoupler transistor outputs and the service button are active LOW.
+  // Internal pull-ups establish safe inactive states if the remote side is
+  // disconnected. Rev B may add external pull-ups where EMC testing calls
+  // for a stronger bias.
   pinMode(PIN_ACC_SENSE, INPUT_PULLUP);
   pinMode(PIN_SHUTDOWN_ACK, INPUT_PULLUP);
   pinMode(PIN_PI_HEARTBEAT, INPUT_PULLUP);
@@ -125,12 +130,18 @@ void loop() {
 
   switch (state) {
     case SupervisorState::OFF:
-      // Normally unreachable while the Uno is powered; Rev A hardware
+      // Normally unreachable while the Uno is powered; Rev A.1 hardware
       // releases supervisor power after POWER_OFF.
       break;
 
     case SupervisorState::WAKE:
-      if (accActive() || serviceRequested()) {
+      if (accActive()) {
+        serviceBootLatched = false;
+        enterState(SupervisorState::PRECHECK);
+      } else if (serviceRequested()) {
+        // SW1 is momentary. Capture the reason for waking now so the user
+        // does not have to hold the button while the Raspberry Pi boots.
+        serviceBootLatched = true;
         enterState(SupervisorState::PRECHECK);
       } else {
         enterState(SupervisorState::POWER_OFF);
@@ -149,7 +160,7 @@ void loop() {
       // Never accept boot based only on elapsed time. At least one real
       // heartbeat transition must be seen from the Pi.
       if (heartbeatAlive()) {
-        enterState(serviceRequested() && !accActive()
+        enterState(serviceBootLatched && !accActive()
                        ? SupervisorState::SERVICE
                        : SupervisorState::RUN);
       } else if ((millis() - stateEnteredMs) > BOOT_TIMEOUT_MS) {
@@ -168,6 +179,7 @@ void loop() {
     case SupervisorState::SHUTDOWN_REQUEST:
       if (accActive()) {
         setShutdownRequest(false);
+        serviceBootLatched = false;
         enterState(SupervisorState::RUN);
       } else if ((millis() - stateEnteredMs) >= IGNITION_OFF_DELAY_MS) {
         setShutdownRequest(true);
@@ -178,8 +190,10 @@ void loop() {
     case SupervisorState::SHUTDOWN_WAIT:
       if (accActive()) {
         setShutdownRequest(false);
+        serviceBootLatched = false;
         enterState(SupervisorState::RUN);
       } else if (shutdownAcknowledged()) {
+        // Normal path: GPIO22 gpio-poweroff indication has reached U4D.
         setShutdownRequest(false);
         enterState(SupervisorState::POWER_OFF);
       } else if ((millis() - stateEnteredMs) >= SHUTDOWN_HARD_TIMEOUT_MS) {
@@ -200,6 +214,7 @@ void loop() {
 
     case SupervisorState::SERVICE:
       if (accActive()) {
+        serviceBootLatched = false;
         enterState(SupervisorState::RUN);
       } else if (!heartbeatAlive()) {
         enterState(SupervisorState::FAULT);
