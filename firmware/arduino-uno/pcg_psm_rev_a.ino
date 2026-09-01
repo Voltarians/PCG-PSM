@@ -49,6 +49,7 @@ SupervisorState state = SupervisorState::WAKE;
 unsigned long stateEnteredMs = 0;
 unsigned long lastHeartbeatMs = 0;
 bool lastHeartbeatLevel = false;
+bool heartbeatSeen = false;
 
 void enterState(SupervisorState next) {
   state = next;
@@ -75,16 +76,23 @@ void setShutdownRequest(bool active) {
   digitalWrite(PIN_SHUTDOWN_REQ, active ? HIGH : LOW);
 }
 
+void resetHeartbeatMonitor() {
+  lastHeartbeatLevel = digitalRead(PIN_PI_HEARTBEAT);
+  lastHeartbeatMs = millis();
+  heartbeatSeen = false;
+}
+
 void updateHeartbeat() {
   const bool level = digitalRead(PIN_PI_HEARTBEAT);
   if (level != lastHeartbeatLevel) {
     lastHeartbeatLevel = level;
     lastHeartbeatMs = millis();
+    heartbeatSeen = true;
   }
 }
 
 bool heartbeatAlive() {
-  return (millis() - lastHeartbeatMs) <= HEARTBEAT_TIMEOUT_MS;
+  return heartbeatSeen && ((millis() - lastHeartbeatMs) <= HEARTBEAT_TIMEOUT_MS);
 }
 
 void setup() {
@@ -102,6 +110,7 @@ void setup() {
   setMainPower(false);
 
   Serial.begin(115200);
+  resetHeartbeatMonitor();
   enterState(SupervisorState::WAKE);
 }
 
@@ -125,20 +134,16 @@ void loop() {
     case SupervisorState::PRECHECK:
       // TODO: convert protected ADC readings to real voltages and apply
       // validated low-voltage and temperature limits.
-      if (serviceRequested() && !accActive()) {
-        setMainPower(true);
-        lastHeartbeatMs = millis();
-        enterState(SupervisorState::SERVICE);
-      } else {
-        setMainPower(true);
-        lastHeartbeatMs = millis();
-        enterState(SupervisorState::BOOT);
-      }
+      setMainPower(true);
+      resetHeartbeatMonitor();
+      enterState(SupervisorState::BOOT);
       break;
 
     case SupervisorState::BOOT:
-      if (heartbeatAlive() && (millis() - stateEnteredMs) > 1000UL) {
-        enterState(SupervisorState::RUN);
+      if (heartbeatAlive()) {
+        enterState(serviceRequested() && !accActive()
+                       ? SupervisorState::SERVICE
+                       : SupervisorState::RUN);
       } else if ((millis() - stateEnteredMs) > BOOT_TIMEOUT_MS) {
         enterState(SupervisorState::FAULT);
       }
