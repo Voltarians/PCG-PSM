@@ -1,0 +1,10 @@
+# PCG-PSM Rev A.2 Raspberry Pi 5 GPIO contract
+# Add these lines to /boot/firmware/config.txt on current Raspberry Pi OS.
+# Older images may use /boot/config.txt.
+
+# Uno D3 -> U4B -> Pi GPIO17. Active-low request starts normal Linux shutdown.
+dtoverlay=gpio-shutdown,gpio_pin=17,active_low=1,gpio_pull=2,debounce=100
+
+# Pi GPIO22 -> U4D -> Uno D4. GPIO22 is driven HIGH only after Linux reaches
+# the gpio-poweroff state, lighting U4D and pulling Uno D4 LOW (safe to cut).
+dtoverlay=gpio-poweroff,gpiopin=22,active_low=0
