@@ -1,0 +1,16 @@
+[Unit]
+Description=PCG-PSM heartbeat and telemetry daemon
+Documentation=https://github.com/Voltarians/PCG-PSM
+After=local-fs.target
+Before=shutdown.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/pcg-psm/pcg_psm.py --config /etc/pcg-psm/pcg-psm.conf
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
