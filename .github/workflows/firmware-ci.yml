@@ -1,0 +1,38 @@
+name: PCG-PSM Firmware CI
+
+on:
+  push:
+    paths:
+      - 'firmware/arduino-uno/**'
+      - 'pi-service/**'
+      - '.github/workflows/firmware-ci.yml'
+  pull_request:
+    paths:
+      - 'firmware/arduino-uno/**'
+      - 'pi-service/**'
+      - '.github/workflows/firmware-ci.yml'
+
+jobs:
+  arduino-uno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install AVR core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+      - name: Compile Rev A Uno firmware
+        run: arduino-cli compile --fqbn arduino:avr:uno firmware/arduino-uno/pcg_psm_rev_a.ino
+
+  raspberry-pi-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python syntax check
+        run: python -m py_compile pi-service/pcg_psm.py
+      - name: Installer shell syntax check
+        run: bash -n pi-service/install.sh
