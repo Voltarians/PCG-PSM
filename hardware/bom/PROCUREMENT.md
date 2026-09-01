@@ -1,125 +1,108 @@
-# PCG-PSM Rev A Procurement Plan
+# PCG-PSM Rev A.1 Procurement Plan
 
 Date checked: **2026-09-01**
 
 ## Procurement decision
 
-Use **DigiKey for the automotive control/protection parts** and buy the **Mean Well DDR-60G-5 separately from an authorized Mean Well distributor**. DigiKey's DDR-60G-5 product page currently reports that the converter is no longer available there, so the earlier one-vendor plan is no longer actionable.
+Use **DigiKey for the automotive control/protection parts** and buy the **Mean Well DDR-60G-5 separately from an authorized Mean Well distributor**. DigiKey's DDR-60G-5 listing is no longer actionable for a new unit, so PS1 stays on a separate order.
 
-The preferred current source for PS1 is **Power Supply Mall**, which identifies itself as an authorized Mean Well distributor and currently lists the DDR-60G-5. Shipping is calculated at checkout; free U.S. shipping starts at $200, so record the delivered price before ordering.
+The preferred observed PS1 source remains **Power Supply Mall**, which identifies itself as an authorized Mean Well distributor. Record the delivered checkout price before ordering.
 
-Use existing shop stock for ordinary resistors, capacitors, wire, heat-shrink, terminals, a momentary service switch, and a 10 kΩ NTC where suitable parts are already on hand.
+Use existing shop stock for ordinary resistors, capacitors, wire, heat-shrink, terminals, and NTCs only when their values/ratings match the Rev A.1 BOM.
 
-## DigiKey specialty-parts order
+## Specialty-parts order
 
-| Ref | Qty | Manufacturer part | DigiKey identifier when confirmed | Est. unit price | Est. extended |
-| --- | ---: | --- | --- | ---: | ---: |
-| U1 | 1 | TI LM74610QDGKRQ1 | 296-43067-1-ND cut tape | $2.59 | $2.59 |
-| Q1 | 1 | Nexperia BUK9Y8R8-60ELX | search exact manufacturer part | $2.54 | $2.54 |
-| D1 | 1 | Littelfuse SLD8S18A | F8152CT-ND | $4.53 | $4.53 |
-| U2 | 1 | Infineon BTS500601TEAAUMA2 | BTS500601TEAAUMA2CT-ND | $4.40 | $4.40 |
-| Q2 | 1 | Vishay SQ7415CENW-T1_GE3 | 742-SQ7415CENW-T1_GE3CT-ND | $1.46 | $1.46 |
-| U3 | 1 | onsemi NCV7805BDTRKG | search exact manufacturer part | $0.62 | $0.62 |
-| U4 | 1 | Lite-On LTV-847, 16-DIP | search exact manufacturer part | $1.80 | $1.80 |
-| F1 | 1 | Littelfuse 0287010.PXCN, 10 A ATO | F4199-ND | $0.44 | $0.44 |
-| Q3,Q4 | 2 | Diotec 2N3904, TO-92 | 4878-2N3904CT-ND | $0.14 | $0.28 |
-| DZ1 | 1 | Taiwan Semiconductor BZD27C12PWH | BZD27C12PWHCT-ND | $0.53 | $0.53 |
-| D2/D3 | 2 | 1N4148 or documented equivalent | shop stock or DigiKey | ~$0.10 | ~$0.20 |
-
-**DigiKey specialty-parts subtotal: approximately $19.39.**
-
-DigiKey U.S. shipping currently starts at **$4.99 USPS Ground Advantage**, putting this portion at approximately **$24.38 before tax, tariffs if applicable, and any common passives added to the order.**
+| Ref | Qty | Manufacturer part | Notes |
+| --- | ---: | --- | --- |
+| U1 | 1 | TI LM74610QDGKRQ1 | exact part |
+| Q1 | 1 | Nexperia BUK9Y8R8-60ELX | exact part |
+| D1 | 1 | Littelfuse SLD8S18A | exact automotive load-dump TVS |
+| U2 | 1 | Infineon BTS500601TEAAUMA2 | exact smart high-side switch |
+| Q2 | 1 | Vishay SQ7415CENW-T1_GE3 | exact AEC-Q101 -60 V P-MOSFET |
+| U3 | 1 | onsemi NCV7805BDTRKG | automotive 5 V regulator |
+| U4 | 1 | Lite-On LTV-847, DIP-16 | quad optocoupler |
+| D4 | 1 | onsemi SBAT54SLT1G | **new Rev A.1 item**; AEC-Q101 dual Schottky A0 clamp |
+| F1 | 1+ spare | Littelfuse 10 A ATO/ATC | use appropriate fuse holder |
+| Q3,Q4 | 2 | 2N3904 / documented equivalent | 40 V or higher |
+| DZ1 | 1 | BZD27C12PWH or equivalent 12 V automotive Zener | Q2 VGS clamp |
+| D2,D3 | 2 | 1N4148 or documented equivalent | small-signal clamps |
 
 ## Main converter — separate order
 
-| Ref | Qty | Part | Preferred source | Current observed price | Notes |
+| Ref | Qty | Part | Preferred source | Last observed price | Notes |
 | --- | ---: | --- | --- | ---: | --- |
-| PS1 | 1 | Mean Well DDR-60G-5 | Power Supply Mall | about $35.83 | Authorized Mean Well distributor; shipping calculated at checkout |
+| PS1 | 1 | Mean Well DDR-60G-5 | authorized Mean Well distributor / Power Supply Mall | about $35.83 | shipping calculated at checkout |
 
-PS1 requirements remain:
+PS1 requirements remain 9–36 V input, 4.5–5.5 V adjustable output, 10.8 A / 54 W capability, isolated output, and suitable temperature derating. Set it so the **Pi sees about 5.10 V at its actual power input under representative load**.
 
-- 9–36 V DC input
-- 5 V nominal output, adjustable approximately ±10%
-- 10.8 A / 54 W output capability
-- isolated output
-- -40 to +85 °C operating range with applicable derating
+## Rev A.1 resistor shopping list
 
-Set PS1 so the **Raspberry Pi sees about 5.10 V at its power input under representative load**, not simply 5.10 V at the converter terminals.
+Buy several spares of each common value.
 
-### Alternate converter sources observed
+- 180 kΩ 1%, x1 minimum
+- 100 kΩ, x4 minimum
+- 47 kΩ 1%, x2 minimum for R15/R16
+- 47 kΩ 0.5 W, x1 minimum for R6
+- 22 kΩ 1%, x1 minimum
+- 10 kΩ 1%, x5 minimum where precision is called out
+- 10 kΩ standard, x3+ minimum for logic pull-ups/series nodes
+- 4.7 kΩ standard, x2 minimum for R4/R8
+- 4.7 kΩ 0.5 W, x1 minimum for R10
+- 1 kΩ, x3 minimum for R18/R20/R22
+- 470 Ω 1%, x1 minimum for R3
 
-- TRC Electronics: approximately $43.82
-- Wellforces: approximately $41.08
-- Newark: approximately $49.72
+The exact designator/value mapping is in `README.md` and `../rev-a/schematic.md`.
 
-Do not buy anonymous marketplace or surplus units merely to save a few dollars on this permanent power component.
+## Rev A.1 capacitor shopping list
 
-## Add only if not already in the shop
+- C1: 470 µF / 50 V low-ESR electrolytic, x1
+- C2: 1 µF / 50 V ceramic or film, x1
+- C3: 100 nF / 50 V ceramic, x1
+- C4: **2.2 µF X7R / 16 V**, x1 — LM74610 charge-pump capacitor
+- C5: **4.7 nF**, x1 — BTS50060 diagnostic-filter capacitor
+- C6: 0.33 µF, x1
+- C7: 10 µF / 35 V, x1
+- C8: 100 nF, x1
+- C9: 100 µF / 10 V or higher, x1
+- C10,C11: 100 nF, x2
+- extra 100 nF bypass capacitors, several
 
-These parts are inexpensive and do not justify a separate supplier order. Add them to DigiKey only when suitable values are not already available.
+## Other hardware
 
-### Resistors
-
-- 180 kΩ, 1%, x1
-- 100 kΩ, x4 or more
-- 47 kΩ, 1%, x3 or more
-- 22 kΩ, 1%, x1
-- 10 kΩ, 1%, x6 or more
-- 4.7 kΩ, 0.5 W, x2
-- 4.7 kΩ standard, x1
-- 1 kΩ, x4
-- 680 Ω, x4 optional alternate optocoupler LED value
-- 470 Ω, 1%, x1
-
-Buy a few spares of every resistor value used in Rev A.
-
-### Capacitors
-
-- 470 µF, 50 V low-ESR electrolytic, x1
-- 100 µF, 25 V or higher, x1
-- 10 µF, 25 V or higher, x1
-- 1 µF, 50 V ceramic/film, x1
-- 100 nF, 50 V ceramic, x10
-
-### Other common hardware
-
-- 10 kΩ NTC thermistor; B3950 is acceptable for Rev A if calibrated in firmware
-- Momentary normally-open service/wake pushbutton
-- Inline or panel ATO/ATC fuse holder rated comfortably above 10 A
-- 10 A ATO/ATC spare fuses
+- TH1: 10 kΩ NTC; B3950 acceptable for Rev A if calibrated
+- **SW1: DPST momentary normally-open pushbutton** — one pole wakes the latch and one pole grounds Uno D8 service sense
+- inline/panel ATO/ATC fuse holder rated comfortably above 10 A
+- spare 10 A ATO/ATC fuses
 - 14 AWG copper wire for the 5 V high-current path
-- 14–16 AWG copper wire for the 12 V main path
-- 20–22 AWG wire for ACC and logic
-- insulated crimp terminals / ferrules as appropriate
+- 14–16 AWG copper for the 12 V main path
+- 20–22 AWG wire for ACC/logic
+- insulated crimp terminals/ferrules as appropriate
 - heat-shrink and harness protection
-- small prototype board or perfboard for Rev A low-current control circuitry
+- perfboard/prototype board for Rev A low-current circuitry, unless a dedicated prototype PCB is made
+- 5-pin low-current Pi signal connector/header for J7
+- 2-pin connectors for J1/J2/J3/J4 sized appropriately for their actual current duty
 
-## Parts already available / excluded from this order
+## Parts already available / excluded
 
 - Arduino Uno — already owned
 - 12 V / 10 A bench source — already owned
 - Raspberry Pi 5 8 GB — separate PCG-Core purchase
 - Raspberry Pi Active Cooler — separate PCG-Core purchase
 - enclosure — select after Rev A geometry is established
-- USB/CAN hub — separate PCG-Core architecture item
+- powered USB/CAN hub — separate PCG-Core architecture item
 
-## Expected Rev A cost
+## Budget
 
-Current core parts are approximately:
+The prior specialty-parts subtotal was around $19–20 before PS1. Rev A.1 adds the SBAT54SLT1G and makes the DPST service switch requirement explicit. With PS1 around the mid-$30 range, expect the **specialty electrical core to remain around $55–65 before all shipping/tax**.
 
-- DigiKey specialty components: **$19.39**
-- Lowest DigiKey shipping: **$4.99**
-- DDR-60G-5 at Power Supply Mall: **about $35.83 plus its checkout shipping**
-
-That makes the known pre-tax total **about $60.21 plus the converter seller's shipping** before adding any common parts not already in the shop.
-
-If essentially every resistor, capacitor, thermistor, fuse holder, connector, and small hardware item must also be purchased, budget roughly **$70–85 before tax** depending on shipping and hardware selections.
+If every passive, fuse holder, DPST switch, connector, thermistor, and harness item must also be purchased, budget approximately **$70–90 before tax**. Existing shop stock can reduce that significantly.
 
 ## Purchase rules
 
-1. Buy cut-tape/single quantities for Rev A, not reels.
-2. Match manufacturer part numbers exactly for U1, Q1, D1, U2, Q2, U3, and PS1.
-3. Do not substitute a generic buck converter for PS1 without reviewing its transient, thermal, input-range, isolation, and output-adjustment behavior.
-4. Do not replace the automotive TVS or reverse-polarity stage with ordinary consumer parts.
-5. Record actual invoice prices and received manufacturer markings before bench assembly.
-6. Rev A remains a validation build; permanent in-vehicle use is gated on electrical and thermal testing.
+1. Buy single/cut-tape quantities for Rev A.1, plus inexpensive spares where sensible.
+2. Match manufacturer part numbers exactly for U1, Q1, D1, U2, Q2, D4, U3, and PS1.
+3. Do not substitute a generic buck converter for PS1 without reviewing transient, thermal, input-range, isolation, and output-adjustment behavior.
+4. Do not replace the automotive TVS, reverse-polarity stage, or A0 clamp with anonymous consumer parts.
+5. Verify Q2 and Q1 package/footprint pinout before soldering.
+6. Record actual invoice prices and received manufacturer markings before assembly.
+7. Rev A.1 remains a validation build; permanent vehicle installation is gated on electrical and thermal testing.
