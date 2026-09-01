@@ -1,267 +1,347 @@
-# PCG-PSM Rev A Schematic / Wiring Plan
+# PCG-PSM Rev A.1 Schematic Contract
 
-This document is the schematic-level net plan for the Arduino Uno Rev A prototype. It is intended to be translated into a formal KiCad schematic after the first bench build verifies polarity and timing assumptions.
+Status: **bench-build schematic frozen for Rev A.1**. Permanent in-vehicle use remains gated on validation.
 
-## 1. Main protected 12 V power path
+The graphical sheets are in `hardware/rev-a/schematic/`. This document is the exact electrical contract behind those drawings.
+
+## Sheet 1 — protected 12 V path and main 5 V converter
 
 ```text
-VEHICLE/BENCH +12V
-      |
-     F1  10 A ATO/ATC
-      |
-      +---- U1 LM74610-Q1 + Q1 BUK9Y8R8-60EL ----+---- PROTECTED_12V
-                                                   |
-                                                   +---- D1 SLD8S18A ---- GND
-                                                   |
-                                                   +---- C1 470uF/50V
-                                                   +---- C2 1uF/50V
-                                                   +---- C3 100nF/50V
-                                                   |
-                                                   +---- U2 BTS50060 smart high-side switch
-                                                             |
-                                                             +---- MAIN_12V_SW
-                                                                      |
-                                                                      +---- PS1 Mean Well DDR-60G-5
-                                                                               |
-                                                                               +---- MAIN_5V
-                                                                               +---- MAIN_5V_GND
+J1-1 VBAT+
+  -> F1 10 A ATO/ATC
+  -> Q1 + U1 reverse-battery ideal-diode stage
+  -> PROTECTED_12V
+       -> D1 SLD8S18A TVS to PCG_GND
+       -> C1 470 uF / 50 V to PCG_GND
+       -> C2 1 uF / 50 V to PCG_GND
+       -> C3 100 nF / 50 V to PCG_GND
+       -> U2 BTS50060-1TEA smart high-side switch
+  -> SWITCHED_12V
+  -> J3-1
+  -> PS1 Mean Well DDR-60G-5 pin 5 +VIN
+
+J1-2 PCG_GND -> J3-2 -> PS1 pin 6 -VIN
 ```
 
-Bond MAIN_5V_GND to PCG/vehicle ground at one intentional star point.
+### U1 — TI LM74610QDGKRQ1, VSSOP-8
 
-### U2 control
+| Pin | Name | Rev A.1 connection |
+| ---: | --- | --- |
+| 1 | VCAPL | C4 low side |
+| 2 | Gate Pull Down | Q1 gate |
+| 3 | NC | no connection |
+| 4 | Anode | Q1 source / fused input side |
+| 5 | NC | no connection |
+| 6 | Gate Drive | Q1 gate |
+| 7 | VCAPH | C4 high side |
+| 8 | Cathode | Q1 drain / `PROTECTED_12V` side |
+
+**C4 = 2.2 uF X7R, 16 V**, directly between U1 pins 7 and 1.
+
+### Q1 — Nexperia BUK9Y8R8-60ELX, LFPAK56
+
+- pins 1–3: Source
+- pin 4: Gate
+- exposed mounting base: Drain
+
+Q1 source is on the U1 ANODE/fused-input side; Q1 drain is on the U1 CATHODE/protected-bus side.
+
+### U2 — Infineon BTS50060-1TEA
+
+| Pin | Function | Rev A.1 connection |
+| ---: | --- | --- |
+| 1 | GND | PCG_GND |
+| 2 | IN | Uno D6 through R1 |
+| 3 / tab | OUT | `SWITCHED_12V` / J3-1 |
+| 4 | IS | Uno A3 diagnostic current-sense node |
+| 5 | VS | `PROTECTED_12V` |
+
+U2 control:
 
 ```text
-Uno D6 ---- 10k ---- U2 IN
-                     |
-                    100k
-                     |
-                    GND
+Uno D6 MAIN_EN -> R1 10 kΩ -> U2 pin 2 IN
+                                  |
+                              R2 100 kΩ
+                                  |
+                                GND
 ```
 
-D6 HIGH = main converter enabled.
-
-### U2 diagnostic current sense
+U2 diagnostic current sense:
 
 ```text
-U2 IS ----+---- Uno A3
-          |
-         470R 1%
-          |
-         GND
-          |
-        100nF
-          |
-         GND
+U2 pin 4 IS ----+---- Uno A3
+                |
+              R3 470 Ω 1%
+                |
+               GND
+                |
+             C5 4.7 nF
+                |
+               GND
 ```
 
-The A3 reading is diagnostic only. Calibrate against an external ammeter before using it quantitatively.
+R3 keeps the specified fault-sense current within the Uno ADC range. A3 is a diagnostic/calibrated PCG-current estimate only; whole-vehicle 12 V current remains sourced from the Volt factory battery-current data when available.
 
-## 2. Supervisor self-latching supply
+### PS1 — Mean Well DDR-60G-5
+
+| Terminal | Function |
+| ---: | --- |
+| 1, 2 | -VOUT |
+| 3, 4 | +VOUT |
+| 5 | +VIN |
+| 6 | -VIN |
+
+Adjust PS1 so the **Raspberry Pi power input measures about 5.10 V under representative load**. The high-current 5 V path does not pass through the Uno shield or Raspberry Pi GPIO header.
+
+## Sheet 2 — self-latching supervisor, ACC, Uno, and analog sensing
+
+### Q2 supervisor latch
+
+Q2 is Vishay `SQ7415CENW-T1_GE3`, automotive P-channel 60 V MOSFET.
+
+- pin 1: Gate
+- pins 2–4: Source
+- pins 5–8 / exposed drain pad: Drain
 
 ```text
-PROTECTED_12V ---- Q2 P-MOSFET -------------------- SUPERVISOR_12V
-                      |
-                      +---- 100k gate-to-source pull-up
-                      +---- 12V Zener gate-to-source clamp
-                      |
-                      +---- Q3 collector (ACC hardware wake)
-                      +---- Q4 collector (Uno SELF_HOLD)
-                      +---- SW1 service-wake momentary pull-down
+PROTECTED_12V -> Q2 Source
+Q2 Drain      -> SUPERVISOR_12V
 
-SUPERVISOR_12V ---- U3 NCV7805 ---- SUPERVISOR_5V ---- Arduino Uno 5V
+Q2 Source ---- R5 100 kΩ ---- Q2 Gate
+Q2 Source ---- DZ1 12 V ----- Q2 Gate
+                              |
+Q2 Gate ------- R4 4.7 kΩ ----+---- LATCH_PULLDOWN
 ```
 
-### Q3 ACC wake
+DZ1 cathode goes to Q2 Source; DZ1 anode goes to Q2 Gate. **R4 is required** to limit pull-down/Zener current.
+
+`LATCH_PULLDOWN` is pulled to ground by any of:
+
+- Q3 collector — ACC hardware wake
+- Q4 collector — Uno self-hold
+- SW1 pole A — manual service wake
+
+### U3 — NCV7805BDTRKG
+
+| Pin | Connection |
+| ---: | --- |
+| 1 IN | SUPERVISOR_12V |
+| 2 / tab | PCG_GND |
+| 3 OUT | SUPERVISOR_5V |
+
+Input bypass: C6 0.33 uF plus C7 10 uF / 35 V. Output bypass: C8 100 nF plus C9 100 uF / 10 V.
+
+`SUPERVISOR_5V` powers the Uno through its **5V pin**. Do not connect ordinary USB VBUS at the same time during external-power bench testing; use a data-only/isolated programming cable when appropriate.
+
+### Q3 — hardware ACC wake
 
 ```text
-ACC ---- 47k ---- Q3 base
-                  |
-                 100k
-                  |
-                 GND
-
-Q3 emitter -> GND
-Q3 collector -> Q2 gate
-1N4148 reverse B-E clamp across Q3 base/emitter
-```
-
-ACC can therefore power the supervisor even when the Uno is completely off.
-
-### Q4 Uno self-hold
-
-```text
-Uno D7 ---- 4.7k ---- Q4 base
-                       |
-                      100k
-                       |
-                      GND
-
-Q4 emitter -> GND
-Q4 collector -> Q2 gate
-```
-
-D7 HIGH holds supervisor power on after the ACC wake path disappears. D7 LOW releases the latch after shutdown.
-
-### Service wake
-
-SW1 is a momentary pushbutton that pulls the Q2 gate low through a current-limiting resistor. The Uno asserts D7 immediately after boot so the button can be released.
-
-## 3. Ignition/ACC logic sense
-
-ACC wake and ACC sensing are deliberately separate.
-
-```text
-ACC ---- 4.7k / 0.5W ---- U4A LED ---- GND
-                     |          |
-                     +-- 1N4148 antiparallel protection
-
-SUPERVISOR_5V ---- 10k ----+---- Uno D2
+ACC -> R6 47 kΩ 0.5 W -> Q3 base
                             |
-                         U4A transistor
-                            |
-                           GND
-```
-
-Result: **D2 LOW = ACC active**.
-
-## 4. Pi / Uno isolated handshake
-
-Use remaining LTV-847 channels.
-
-### Uno -> Pi shutdown request (U4B)
-
-```text
-Uno D3 ---- 1k ---- U4B LED ---- GND
-
-Pi 3.3V ---- 10k ----+---- Pi GPIO SHUTDOWN_REQ
-                      |
-                  U4B transistor
-                      |
-                     Pi GND
-```
-
-D3 HIGH causes the Pi GPIO to go LOW. Pi software treats LOW as shutdown requested.
-
-### Pi -> Uno heartbeat (U4C)
-
-```text
-Pi GPIO HEARTBEAT ---- 1k ---- U4C LED ---- Pi GND
-
-SUPERVISOR_5V ---- 10k ----+---- Uno D5
-                            |
-                        U4C transistor
+                         R7 100 kΩ
                             |
                            GND
+
+Q3 collector -> LATCH_PULLDOWN
+Q3 emitter   -> GND
+D2 1N4148 reverse B-E clamp across Q3
 ```
 
-Heartbeat is edge-based; inversion is irrelevant.
+This path can wake the supervisor when the Uno is completely unpowered.
 
-### Pi -> Uno shutdown acknowledgement (U4D)
+### SW1 — service wake
+
+SW1 is **DPST, momentary, normally open**.
+
+- pole A: `LATCH_PULLDOWN` to GND
+- pole B: `SERVICE_SENSE_N` to GND
+- `SERVICE_SENSE_N` goes to Uno D8, configured with `INPUT_PULLUP`
+
+The firmware latches the service-boot decision immediately so the button does not have to remain pressed while Linux boots.
+
+### Q4 — Uno self-hold
 
 ```text
-Pi GPIO SHUTDOWN_ACK ---- 1k ---- U4D LED ---- Pi GND
+Uno D7 SELF_HOLD -> R8 4.7 kΩ -> Q4 base
+                                      |
+                                   R9 100 kΩ
+                                      |
+                                     GND
 
-SUPERVISOR_5V ---- 10k ----+---- Uno D4
-                            |
-                        U4D transistor
-                            |
-                           GND
+Q4 collector -> LATCH_PULLDOWN
+Q4 emitter   -> GND
 ```
 
-Result: **D4 LOW = shutdown acknowledged**.
+D7 HIGH keeps the supervisor alive after the wake source disappears. After safe Pi shutdown, D7 LOW releases Q2 and removes supervisor power.
 
-## 5. Voltage and temperature sensing
+### U4A — ACC logic sense
 
-### A0 protected vehicle voltage
+LTV-847 channel 1:
 
 ```text
-PROTECTED_12V ---- 180k 1% ----+---- Uno A0
-                                |
-                               22k 1%
-                                |
-                               GND
-                                |
-                              100nF
-                                |
-                               GND
+ACC -> R10 4.7 kΩ 0.5 W -> U4 pins 1/2 LED -> GND
+D3 1N4148 antiparallel across LED pins 1/2
+
+SUPERVISOR_5V -> R11 10 kΩ -> Uno D2 / U4 pin 16 collector
+U4 pin 15 emitter -> GND
 ```
 
-### A1 main 5 V rail
+Result: **Uno D2 LOW = ACC active**.
+
+### Uno analog channels
+
+**A0 — protected vehicle voltage**
 
 ```text
-MAIN_5V ---- 47k 1% ----+---- Uno A1
-                         |
-                        47k 1%
-                         |
-                        GND
-                         |
-                       100nF
-                         |
-                        GND
+PROTECTED_12V -> R12 180 kΩ 1% -> divider node
+                                        |
+                                  R13 22 kΩ 1%
+                                        |
+                                       GND
+
+C10 100 nF from divider node to GND
+divider node -> R14 10 kΩ -> Uno A0
 ```
 
-### A2 temperature
+D4 is `SBAT54SLT1G`, automotive dual Schottky clamp:
+
+- pin 1 -> GND
+- pin 3 -> Uno A0 clamp node
+- pin 2 -> SUPERVISOR_5V
+
+**A1 — main 5 V rail sense**
 
 ```text
-SUPERVISOR_5V ---- 10k 1% ----+---- Uno A2
-                               |
-                          10k NTC B3950
-                               |
-                              GND
+J4-1 MAIN_5V -> R15 47 kΩ 1% -> Uno A1 node
+                                      |
+                                R16 47 kΩ 1%
+                                      |
+                                     GND
+C11 100 nF from A1 node to GND
+J4-2 -> PCG_GND
 ```
 
-Place the NTC near the main switching/protection area rather than next to the Arduino.
-
-## 6. Main 5 V distribution
-
-The DDR-60G-5 output should feed a small high-current distribution point rather than the Pi GPIO header.
-
-Recommended branches:
+**A2 — temperature**
 
 ```text
-MAIN_5V
-  |
-  +---- Pi power branch -> short heavy-gauge USB-C power harness
-  |
-  +---- powered USB/CAN hub branch
-  |
-  +---- future peripheral branch
+SUPERVISOR_5V -> R17 10 kΩ 1% -> Uno A2 node
+                                         |
+                                  TH1 10 kΩ NTC B3950
+                                         |
+                                        GND
 ```
 
-Set the converter so the Pi receives 5.10 V under representative load. Measure at the Pi end of the harness.
+Mount TH1 near the power/protection area, not beside the Uno.
 
-## 7. Grounding
+## Sheet 3 — Raspberry Pi 5 isolated GPIO handshake
 
-Use one PCG star point joining:
+### J7 Pi signal header
 
-- vehicle 12 V ground
-- Uno/supervisor ground
-- BTS50060 ground
-- protected input ground
-- Mean Well isolated output negative
-- Pi ground
-- USB hub ground
+J7 carries **signals only; no Pi 5 V power**.
 
-Do not allow the USB/CAN adapters to become the only connection between isolated 5 V negative and vehicle ground.
+| J7 | Pi physical pin | Signal | Direction |
+| ---: | ---: | --- | --- |
+| 1 | 1 | 3.3 V reference | Pi -> interface pull-ups only |
+| 2 | 6 | GND | Pi-side optocoupler return |
+| 3 | 11 / GPIO17 | shutdown request | Uno -> Pi |
+| 4 | 13 / GPIO27 | heartbeat | Pi -> Uno |
+| 5 | 15 / GPIO22 | safe-to-cut-power | Pi -> Uno |
 
-## 8. Bench bring-up order
+### U4 complete LTV-847 channel map
 
-1. Build only F1 + reverse protection + TVS and verify forward/reverse behavior with a current-limited bench supply.
-2. Add Q2/U3 supervisor latch and verify ACC wake/self-hold/release without the Pi connected.
-3. Add U4 optocoupler signaling and verify logic levels with a meter or scope.
-4. Add U2 smart high-side switch with a dummy load instead of PS1.
-5. Add PS1 and set output under dummy load.
-6. Connect Pi only after MAIN_5V stability, overshoot, and shutdown behavior are verified.
-7. Add the USB/CAN load after Pi operation is stable.
+| Channel | LED pins | transistor collector/emitter | Assignment |
+| --- | --- | --- | --- |
+| U4A | 1 / 2 | 16 / 15 | ACC sense |
+| U4B | 3 / 4 | 14 / 13 | Uno shutdown request -> GPIO17 |
+| U4C | 5 / 6 | 12 / 11 | GPIO27 heartbeat -> Uno D5 |
+| U4D | 7 / 8 | 10 / 9 | GPIO22 safe-power-off -> Uno D4 |
 
-## 9. Not frozen yet
+### U4B — shutdown request
 
-- Final low-voltage cutoff thresholds
-- Final ADC calibration constants
-- Final service-mode timeout
-- EMI common-mode choke selection
-- Exact Pi USB-C power connector implementation
-- Enclosure and production connector family
+```text
+Uno D3 -> R18 1 kΩ -> U4B LED pins 3/4 -> Uno GND
+Pi 3.3V -> R19 10 kΩ -> GPIO17 / U4B collector pin 14
+U4B emitter pin 13 -> Pi GND
+```
 
-Those items require bench measurements or mechanical layout before they can be frozen.
+Uno D3 HIGH causes GPIO17 LOW.
+
+Pi configuration:
+
+```text
+dtoverlay=gpio-shutdown,gpio_pin=17,active_low=1,gpio_pull=up,debounce=100
+```
+
+### U4C — heartbeat
+
+```text
+GPIO27 -> R20 1 kΩ -> U4C LED pins 5/6 -> Pi GND
+SUPERVISOR_5V -> R21 10 kΩ -> Uno D5 / U4C collector pin 12
+U4C emitter pin 11 -> Uno GND
+```
+
+The PCG-PSM Pi service toggles GPIO27 at 1 Hz. Uno BOOT requires at least one real edge; RUN faults after approximately 15 seconds without an edge.
+
+### U4D — safe-to-cut-power acknowledgement
+
+```text
+GPIO22 -> R22 1 kΩ -> U4D LED pins 7/8 -> Pi GND
+SUPERVISOR_5V -> R23 10 kΩ -> Uno D4 / U4D collector pin 10
+U4D emitter pin 9 -> Uno GND
+```
+
+Pi configuration:
+
+```text
+dtoverlay=gpio-poweroff,gpiopin=22
+```
+
+The supervisor must treat the `gpio-poweroff` hardware signal as the normal **safe-to-remove-power acknowledgement**, rather than relying on an early userspace flag. A hard timeout remains as the independent fallback if Linux never reaches safe poweroff.
+
+## Connector contract
+
+| Connector | Pin | Function |
+| --- | ---: | --- |
+| J1 | 1 | VBAT+ |
+| J1 | 2 | PCG_GND |
+| J2 | 1 | ACC |
+| J2 | 2 | PCG_GND |
+| J3 | 1 | SWITCHED_12V to PS1 +VIN |
+| J3 | 2 | PCG_GND to PS1 -VIN |
+| J4 | 1 | MAIN_5V sense only |
+| J4 | 2 | PCG_GND |
+| J7 | 1 | Pi 3.3 V / physical 1 |
+| J7 | 2 | Pi GND / physical 6 |
+| J7 | 3 | GPIO17 / physical 11 |
+| J7 | 4 | GPIO27 / physical 13 |
+| J7 | 5 | GPIO22 / physical 15 |
+
+## Grounding and high-current distribution
+
+Use one intentional PCG star point joining vehicle 12 V ground, supervisor/Uno ground, U2 ground, protected-input return, PS1 output negative, Pi ground, and powered USB/CAN-hub ground. Do not allow a USB or CAN adapter to become the accidental sole bond between the isolated converter output and vehicle ground.
+
+The DDR-60G-5 high-current output should branch to the Pi and powered USB/CAN subsystem with short heavy-gauge conductors. The exact Pi USB-C power-harness implementation remains a mechanical/electrical item to freeze after bench voltage-drop testing.
+
+## Rev A.1 bring-up sequence
+
+1. Current-limit the 12 V bench source.
+2. Build F1 + U1/Q1 + D1 only and verify normal and reverse-polarity behavior.
+3. Add C1–C4 and verify protected-bus startup/transient behavior.
+4. Build Q2/U3 latch and verify ACC wake, SW1 service wake, D7 self-hold, and complete power release without the Pi.
+5. Verify every U4 channel with a meter/scope before connecting Pi GPIO.
+6. Add U2 with a dummy load; verify D6 enable and IS diagnostic behavior.
+7. Add PS1 and a dummy 5 V load; verify output, startup overshoot, thermal rise, and shutdown.
+8. Connect Pi only after the 5 V rail is proven stable.
+9. Validate GPIO17 shutdown, GPIO27 heartbeat loss, and GPIO22 safe-poweroff acknowledgement repeatedly.
+10. Add USB/CAN loads and repeat thermal, low-voltage, and shutdown testing.
+
+## Still intentionally not frozen
+
+- final 12 V low/critical/emergency cutoff thresholds
+- final ADC calibration constants
+- final service timeout
+- EMI/common-mode choke selection based on measurement
+- final Pi high-current connector/harness
+- enclosure and production connector family
+
+Those values require bench or in-vehicle measurements rather than assumptions.
