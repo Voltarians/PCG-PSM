@@ -33,7 +33,7 @@ If USB serial is absent, the heartbeat continues. This keeps power supervision i
 
 ```bash
 cd pi-service
-sudo ./install.sh
+sudo bash install.sh
 sudo reboot
 ```
 
