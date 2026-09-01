@@ -4,9 +4,9 @@
  *
  * Development target: Arduino Uno / ATmega328P
  *
- * This is the initial firmware skeleton. Thresholds, polarity, timings,
- * and pin assignments remain provisional until the Rev A schematic and
- * bench measurements are frozen.
+ * Rev A hardware conventions are now frozen for the first bench build.
+ * Low-voltage thresholds and ADC calibration remain intentionally TBD
+ * until the protected power path is measured on the bench and in the Volt.
  */
 
 #include <Arduino.h>
@@ -25,19 +25,20 @@ enum class SupervisorState : uint8_t {
   FAULT
 };
 
-// Provisional Rev A pin plan.
-constexpr uint8_t PIN_ACC_SENSE      = 2;
-constexpr uint8_t PIN_SHUTDOWN_REQ   = 3;
-constexpr uint8_t PIN_SHUTDOWN_ACK   = 4;
-constexpr uint8_t PIN_PI_HEARTBEAT   = 5;
-constexpr uint8_t PIN_MAIN_POWER_EN  = 6;
-constexpr uint8_t PIN_SELF_HOLD      = 7;
-constexpr uint8_t PIN_SERVICE_WAKE   = 8;
+// Frozen Rev A pin plan.
+constexpr uint8_t PIN_ACC_SENSE      = 2;   // Active LOW via optocoupler
+constexpr uint8_t PIN_SHUTDOWN_REQ   = 3;   // HIGH lights opto; Pi sees LOW
+constexpr uint8_t PIN_SHUTDOWN_ACK   = 4;   // Active LOW via optocoupler
+constexpr uint8_t PIN_PI_HEARTBEAT   = 5;   // Edge-based via optocoupler
+constexpr uint8_t PIN_MAIN_POWER_EN  = 6;   // HIGH enables BTS50060
+constexpr uint8_t PIN_SELF_HOLD      = 7;   // HIGH holds supervisor latch
+constexpr uint8_t PIN_SERVICE_WAKE   = 8;   // Active LOW switch/input
 constexpr uint8_t PIN_VEHICLE_VOLT   = A0;
 constexpr uint8_t PIN_5V_VOLT        = A1;
 constexpr uint8_t PIN_TEMPERATURE    = A2;
+constexpr uint8_t PIN_POWER_SENSE    = A3;  // BTS50060 IS diagnostic channel
 
-// Initial development timings. These are intentionally easy to change.
+// Initial development timings. These remain configurable candidates.
 constexpr unsigned long BOOT_TIMEOUT_MS          = 120000UL;
 constexpr unsigned long HEARTBEAT_TIMEOUT_MS     = 15000UL;
 constexpr unsigned long IGNITION_OFF_DELAY_MS    = 30000UL;
@@ -48,7 +49,7 @@ constexpr unsigned long SERVICE_TIMEOUT_MS       = 3600000UL;
 SupervisorState state = SupervisorState::WAKE;
 unsigned long stateEnteredMs = 0;
 unsigned long lastHeartbeatMs = 0;
-bool lastHeartbeatLevel = false;
+bool lastHeartbeatLevel = true;
 bool heartbeatSeen = false;
 
 void enterState(SupervisorState next) {
@@ -57,15 +58,15 @@ void enterState(SupervisorState next) {
 }
 
 bool accActive() {
-  return digitalRead(PIN_ACC_SENSE) == HIGH;
+  return digitalRead(PIN_ACC_SENSE) == LOW;
 }
 
 bool serviceRequested() {
-  return digitalRead(PIN_SERVICE_WAKE) == HIGH;
+  return digitalRead(PIN_SERVICE_WAKE) == LOW;
 }
 
 bool shutdownAcknowledged() {
-  return digitalRead(PIN_SHUTDOWN_ACK) == HIGH;
+  return digitalRead(PIN_SHUTDOWN_ACK) == LOW;
 }
 
 void setMainPower(bool enabled) {
@@ -73,6 +74,8 @@ void setMainPower(bool enabled) {
 }
 
 void setShutdownRequest(bool active) {
+  // HIGH drives the Uno-side optocoupler LED. The Pi receives an
+  // active-LOW shutdown request at its isolated GPIO input.
   digitalWrite(PIN_SHUTDOWN_REQ, active ? HIGH : LOW);
 }
 
@@ -96,15 +99,18 @@ bool heartbeatAlive() {
 }
 
 void setup() {
-  pinMode(PIN_ACC_SENSE, INPUT);
-  pinMode(PIN_SHUTDOWN_ACK, INPUT);
-  pinMode(PIN_PI_HEARTBEAT, INPUT);
-  pinMode(PIN_SERVICE_WAKE, INPUT);
+  // Optocoupler transistor outputs are open collector; internal pull-ups
+  // define safe inactive states if the Pi/vehicle side is disconnected.
+  pinMode(PIN_ACC_SENSE, INPUT_PULLUP);
+  pinMode(PIN_SHUTDOWN_ACK, INPUT_PULLUP);
+  pinMode(PIN_PI_HEARTBEAT, INPUT_PULLUP);
+  pinMode(PIN_SERVICE_WAKE, INPUT_PULLUP);
 
   pinMode(PIN_SHUTDOWN_REQ, OUTPUT);
   pinMode(PIN_MAIN_POWER_EN, OUTPUT);
   pinMode(PIN_SELF_HOLD, OUTPUT);
 
+  // Take control of the hardware latch immediately after reset.
   digitalWrite(PIN_SELF_HOLD, HIGH);
   setShutdownRequest(false);
   setMainPower(false);
@@ -119,8 +125,8 @@ void loop() {
 
   switch (state) {
     case SupervisorState::OFF:
-      // Normally unreachable while the Uno is powered; final hardware
-      // will release the supervisor latch after entering POWER_OFF.
+      // Normally unreachable while the Uno is powered; Rev A hardware
+      // releases supervisor power after POWER_OFF.
       break;
 
     case SupervisorState::WAKE:
@@ -132,14 +138,16 @@ void loop() {
       break;
 
     case SupervisorState::PRECHECK:
-      // TODO: convert protected ADC readings to real voltages and apply
-      // validated low-voltage and temperature limits.
+      // TODO: convert protected ADC readings to calibrated voltages and
+      // temperature, then apply validated low-voltage/thermal limits.
       setMainPower(true);
       resetHeartbeatMonitor();
       enterState(SupervisorState::BOOT);
       break;
 
     case SupervisorState::BOOT:
+      // Never accept boot based only on elapsed time. At least one real
+      // heartbeat transition must be seen from the Pi.
       if (heartbeatAlive()) {
         enterState(serviceRequested() && !accActive()
                        ? SupervisorState::SERVICE
@@ -175,7 +183,7 @@ void loop() {
         setShutdownRequest(false);
         enterState(SupervisorState::POWER_OFF);
       } else if ((millis() - stateEnteredMs) >= SHUTDOWN_HARD_TIMEOUT_MS) {
-        // TODO: persist HARD_TIMEOUT shutdown reason before power removal.
+        // TODO: persist HARD_TIMEOUT reason before power removal.
         setShutdownRequest(false);
         enterState(SupervisorState::POWER_OFF);
       }
@@ -185,7 +193,7 @@ void loop() {
       setMainPower(false);
       setShutdownRequest(false);
       if ((millis() - stateEnteredMs) >= POWER_OFF_SETTLE_MS) {
-        // Final Rev A latch hardware will make this remove supervisor power.
+        // Releasing D7 allows Q2 to turn off and removes supervisor power.
         digitalWrite(PIN_SELF_HOLD, LOW);
       }
       break;
@@ -201,9 +209,8 @@ void loop() {
       break;
 
     case SupervisorState::FAULT:
-      // Initial safe policy: ask for a shutdown first, then fall back to the
-      // same hard timeout path. Event persistence and automatic restart are
-      // added after the electrical interface is bench-validated.
+      // Initial safe policy: request an orderly shutdown first; the normal
+      // hard timeout path prevents a frozen Pi from keeping the system on.
       setShutdownRequest(true);
       enterState(SupervisorState::SHUTDOWN_WAIT);
       break;
